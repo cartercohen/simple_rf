@@ -1,0 +1,117 @@
+---
+title: "Caret Practice"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(ranger)
+library(randomForest)
+library(e1071)
+library(dplyr)
+
+# prepare the data
+
+data(iris)
+set.seed(12345)
+inTraining <- createDataPartition(iris$Species, p = .75, list = FALSE)
+training <- iris[inTraining, ]
+testing  <- iris[-inTraining, ]
+
+# train the model
+# ranger implementation of random forest
+
+rf_m1 <- train(Species ~.,
+               data = training,
+               method = "ranger")
+
+# predict the species based on the test data
+test_cases <- testing$Species
+testing$Species <- NULL
+prediction <- predict(rf_m1, testing)
+
+confusionMatrix(prediction, test_cases)
+
+# more advanced preprocessing
+
+abalone <- read.delim("abalone.data.txt", header = FALSE, sep = ",")
+colnames(abalone) <- c("Sex", "Length", "Diameter", "Height", "Whole weight", "Shucked weight", "Viscera weight", "Shell weight", "Rings")
+
+abalone$Class <- as.factor(findInterval(abalone$Rings, c(0, 8, 14)))
+# young [0,8]
+# adult [9,14]
+# old [15,]
+
+summary(abalone)
+abalone$Rings <- NULL
+
+# preprocess and prepare the data
+
+set.seed(12345)
+inTraining <- createDataPartition(abalone$Class, p = .75, list = FALSE)
+training <- abalone[ inTraining, ]
+testing  <- abalone[-inTraining, ]
+
+test_cases <- testing$Class
+testing$Class <- NULL
+
+# center, scale, near zero variance (nzv) omission, Yeo Johnson Power Transformation, PCA
+
+abalone_process <- preProcess(select(training, - 3),
+                              method = c("center", "scale", "YeoJohnson", "nzv", "pca"))
+
+abalone_process
+# which variables were ignored, centered, scaled, etc.
+abalone_process$method
+# principal components
+abalone_process$rotation
+
+# utilizing trainControl for resampling and parameter tuning
+# 10 fold cross validation
+cv_ctrl <- trainControl(method = "cv",
+                        number = 10)
+
+# it's possible to group folds by data groups using indexing within trainControl
+rf_m2 <- train(Class~., 
+               data = training,
+               method = "ranger",
+               trControl = cv_ctrl)
+
+rf_m2
+
+prediction <- predict(rf_m2, testing)
+
+confusionMatrix(prediction, test_cases)
+
+
+# tuneGrid
+
+# tuning parameters other than mtry requires a customRF 
+rf_grid <- expand.grid(mtry = c(2,3,4,5)
+                       #splitrule = c("gini", "extratrees"),
+                       #min.node.size = c(1,3,5)
+                       )
+
+cv_ctrl <- trainControl(method = "repeatedcv",
+                        number = 10,
+                        repeats =  3)
+                        
+
+# fit the model with the new parameter grid and trainControl
+rf_m3 <- train(Class~.,
+               data = training,
+               trControl = cv_ctrl,
+               tuneGrid = rf_grid)
+
+plot(varImp(rf_m3))
+
+prediction <- predict(rf_m3, testing)
+
+confusionMatrix(prediction, test_cases)
+```
+
+
